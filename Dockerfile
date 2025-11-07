@@ -1,15 +1,28 @@
-# Use the Eclipse temurin alpine official image
-# https://hub.docker.com/_/eclipse-temurin
-FROM eclipse-temurin:21-jdk-alpine
-
-# Create and change to the app directory.
+# Etapa 1: build (usa imagem com Maven + Java)
+FROM maven:3.9.9-eclipse-temurin-21 AS build
 WORKDIR /app
 
-# Copy local code to the container image.
-COPY . ./
+# copia só o pom primeiro pra aproveitar cache
+COPY pom.xml .
+# baixa dependências
+RUN mvn -B dependency:go-offline
 
-# Build the app.
-RUN ./mvnw -DoutputFile=target/mvn-dependency-list.log -B -DskipTests clean dependency:list install
+# agora copia o código
+COPY src ./src
 
-# Run the quarkus app 
-CMD ["sh", "-c", "java -jar target/quarkus-app/quarkus-run.jar"]
+# builda o projeto (sem testes pra ficar mais rápido)
+RUN mvn -B -DskipTests clean package
+
+# Etapa 2: runtime (imagem menor só com Java)
+FROM eclipse-temurin:21-jdk-alpine
+WORKDIR /app
+
+# copia o que o Quarkus gera na pasta target/quarkus-app
+COPY --from=build /app/target/quarkus-app/ /app/
+
+# Railway costuma setar PORT, então já deixa exposto
+ENV PORT=8080
+EXPOSE 8080
+
+# executa o quarkus-run.jar
+CMD ["java", "-jar", "quarkus-run.jar"]
